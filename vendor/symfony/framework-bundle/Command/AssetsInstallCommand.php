@@ -94,7 +94,8 @@ EOT
     {
         /** @var KernelInterface $kernel */
         $kernel = $this->getApplication()->getKernel();
-        $targetArg = rtrim($input->getArgument('target') ?? '', '/');
+        $targetArg = rtrim($input->getArgument('target'), '/');
+
         if (!$targetArg) {
             $targetArg = $this->getPublicDirectory($kernel->getContainer());
         }

@@ -208,13 +208,9 @@ class PropertyAccessor implements PropertyAccessorInterface
         if (!isset($trace[$i]['file']) || __FILE__ !== $trace[$i]['file']) {
             return;
         }
+
         if (preg_match('/^\S+::\S+\(\): Argument #\d+ \(\$\S+\) must be of type (\S+), (\S+) given/', $message, $matches)) {
             [, $expectedType, $actualType] = $matches;
-
-            throw new InvalidArgumentException(sprintf('Expected argument of type "%s", "%s" given at property path "%s".', $expectedType, 'NULL' === $actualType ? 'null' : $actualType, $propertyPath), 0, $previous);
-        }
-        if (preg_match('/^Cannot assign (\S+) to property \S+::\$\S+ of type (\S+)$/', $message, $matches)) {
-            [, $actualType, $expectedType] = $matches;
 
             throw new InvalidArgumentException(sprintf('Expected argument of type "%s", "%s" given at property path "%s".', $expectedType, 'NULL' === $actualType ? 'null' : $actualType, $propertyPath), 0, $previous);
         }
@@ -381,7 +377,7 @@ class PropertyAccessor implements PropertyAccessorInterface
     }
 
     /**
-     * Reads the value of a property from an object.
+     * Reads the a property from an object.
      *
      * @throws NoSuchPropertyException If $ignoreInvalidProperty is false and the property does not exist or is not public
      */
@@ -413,13 +409,13 @@ class PropertyAccessor implements PropertyAccessorInterface
                             && $object instanceof $trace['class']
                             && preg_match('/Return value (?:of .*::\w+\(\) )?must be of (?:the )?type (\w+), null returned$/', $e->getMessage(), $matches)
                         ) {
-                            throw new UninitializedPropertyException(sprintf('The method "%s::%s()" returned "null", but expected type "%3$s". Did you forget to initialize a property or to make the return type nullable using "?%3$s"?', get_debug_type($object), $name, $matches[1]), 0, $e);
+                            throw new UninitializedPropertyException(sprintf('The method "%s::%s()" returned "null", but expected type "%3$s". Did you forget to initialize a property or to make the return type nullable using "?%3$s"?', !str_contains(\get_class($object), "@anonymous\0") ? \get_class($object) : (get_parent_class($object) ?: key(class_implements($object)) ?: 'class').'@anonymous', $name, $matches[1]), 0, $e);
                         }
 
                         throw $e;
                     }
                 } elseif (PropertyReadInfo::TYPE_PROPERTY === $type) {
-                    if ($access->canBeReference() && !isset($object->$name) && !\array_key_exists($name, (array) $object) && !(new \ReflectionProperty($class, $name))->hasType()) {
+                    if (!method_exists($object, '__get') && !isset($object->$name) && !\array_key_exists($name, (array) $object) && !(new \ReflectionProperty($class, $name))->hasType()) {
                         throw new UninitializedPropertyException(sprintf('The property "%s::$%s" is not initialized.', $class, $name));
                     }
 
@@ -431,16 +427,16 @@ class PropertyAccessor implements PropertyAccessorInterface
                 }
             } catch (\Error $e) {
                 // handle uninitialized properties in PHP >= 7.4
-                if (preg_match('/^Typed property ([\w\\\\@]+)::\$(\w+) must not be accessed before initialization$/', $e->getMessage(), $matches)) {
-                    $r = new \ReflectionProperty(str_contains($matches[1], '@anonymous') ? $class : $matches[1], $matches[2]);
+                if (preg_match('/^Typed property ([\w\\\]+)::\$(\w+) must not be accessed before initialization$/', $e->getMessage(), $matches)) {
+                    $r = new \ReflectionProperty($matches[1], $matches[2]);
                     $type = ($type = $r->getType()) instanceof \ReflectionNamedType ? $type->getName() : (string) $type;
 
-                    throw new UninitializedPropertyException(sprintf('The property "%s::$%s" is not readable because it is typed "%s". You should initialize it or declare a default value instead.', $matches[1], $r->getName(), $type), 0, $e);
+                    throw new UninitializedPropertyException(sprintf('The property "%s::$%s" is not readable because it is typed "%s". You should initialize it or declare a default value instead.', $r->getDeclaringClass()->getName(), $r->getName(), $type), 0, $e);
                 }
 
                 throw $e;
             }
-        } elseif (property_exists($object, $property) && \array_key_exists($property, (array) $object)) {
+        } elseif ($object instanceof \stdClass && property_exists($object, $property)) {
             $result[self::VALUE] = $object->$property;
             if (isset($zval[self::REF])) {
                 $result[self::REF] = &$object->$property;

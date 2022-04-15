@@ -16,7 +16,6 @@ use Doctrine\ORM\Mapping\ClassMetadataInfo;
 use Doctrine\ORM\Mapping\MappingException as OrmMappingException;
 use Doctrine\Persistence\Mapping\MappingException;
 use Symfony\Bridge\Doctrine\Validator\Constraints\UniqueEntity;
-use Symfony\Component\PropertyInfo\Type;
 use Symfony\Component\Validator\Constraints\Length;
 use Symfony\Component\Validator\Constraints\Valid;
 use Symfony\Component\Validator\Mapping\AutoMappingStrategy;
@@ -50,7 +49,7 @@ final class DoctrineLoader implements LoaderInterface
         $className = $metadata->getClassName();
         try {
             $doctrineMetadata = $this->entityManager->getClassMetadata($className);
-        } catch (MappingException|OrmMappingException $exception) {
+        } catch (MappingException | OrmMappingException $exception) {
             return false;
         }
 
@@ -100,7 +99,7 @@ final class DoctrineLoader implements LoaderInterface
                 $loaded = true;
             }
 
-            if (null === ($mapping['length'] ?? null) || null !== ($mapping['enumType'] ?? null) || !\in_array($mapping['type'], ['string', 'text'], true)) {
+            if (null === ($mapping['length'] ?? null) || !\in_array($mapping['type'], ['string', 'text'], true)) {
                 continue;
             }
 

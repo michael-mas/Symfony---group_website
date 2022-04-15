@@ -1,0 +1,15 @@
+{% extends 'template.html.twig' %}
+
+{% block body %}
+ <div class="alert alert-success">
+    {{ produits.nom}} a {{ produits.prix }} €
+  {% if app.user %}
+     <p>Created By : {{ app.user.email }}</p>
+  {% endif %}
+ </div>
+{% endblock %}
+
+{% block title %}
+  {{ produits.nom}}
+{% endblock %}
+

@@ -53,6 +53,8 @@ class MergeBuilder
 
     /**
      * Returns the related node.
+     *
+     * @return NodeDefinition|ArrayNodeDefinition|VariableNodeDefinition
      */
     public function end(): NodeDefinition|ArrayNodeDefinition|VariableNodeDefinition
     {

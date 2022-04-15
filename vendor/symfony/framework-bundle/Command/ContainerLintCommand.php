@@ -113,10 +113,6 @@ final class ContainerLintCommand extends Command
                     $skippedIds[$serviceId] = true;
                 }
             }
-
-            $container->getCompilerPassConfig()->setBeforeOptimizationPasses([]);
-            $container->getCompilerPassConfig()->setOptimizationPasses([]);
-            $container->getCompilerPassConfig()->setBeforeRemovingPasses([]);
         }
 
         $container->setParameter('container.build_hash', 'lint_container');

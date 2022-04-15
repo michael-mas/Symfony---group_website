@@ -36,8 +36,7 @@ use Symfony\Component\Workflow\Marking;
 class WorkflowDumpCommand extends Command
 {
     /**
-     * string is the service id.
-     *
+     * string is the service id
      * @var array<string, Definition>
      */
     private array $workflows = [];

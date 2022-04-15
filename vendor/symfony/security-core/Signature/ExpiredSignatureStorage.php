@@ -15,6 +15,8 @@ use Psr\Cache\CacheItemPoolInterface;
 
 /**
  * @author Ryan Weaver <ryan@symfonycasts.com>
+ *
+ * @final
  */
 final class ExpiredSignatureStorage
 {

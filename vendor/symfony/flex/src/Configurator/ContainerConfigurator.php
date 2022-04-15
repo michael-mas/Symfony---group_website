@@ -13,7 +13,6 @@ namespace Symfony\Flex\Configurator;
 
 use Symfony\Flex\Lock;
 use Symfony\Flex\Recipe;
-use Symfony\Flex\Update\RecipeUpdate;
 
 /**
  * @author Fabien Potencier <fabien@symfony.com>
@@ -23,17 +22,13 @@ class ContainerConfigurator extends AbstractConfigurator
     public function configure(Recipe $recipe, $parameters, Lock $lock, array $options = [])
     {
         $this->write('Setting parameters');
-        $contents = $this->configureParameters($parameters);
-
-        if (null !== $contents) {
-            file_put_contents($this->options->get('root-dir').'/'.$this->getServicesPath(), $contents);
-        }
+        $this->addParameters($parameters);
     }
 
     public function unconfigure(Recipe $recipe, $parameters, Lock $lock)
     {
         $this->write('Unsetting parameters');
-        $target = $this->options->get('root-dir').'/'.$this->getServicesPath();
+        $target = $this->options->get('root-dir').'/'.$this->options->expandTargetDir('%CONFIG_DIR%/services.yaml');
         $lines = [];
         foreach (file($target) as $line) {
             if ($this->removeParameters(1, $parameters, $line)) {
@@ -44,26 +39,9 @@ class ContainerConfigurator extends AbstractConfigurator
         file_put_contents($target, implode('', $lines));
     }
 
-    public function update(RecipeUpdate $recipeUpdate, array $originalConfig, array $newConfig): void
+    private function addParameters(array $parameters)
     {
-        if ($originalConfig) {
-            $recipeUpdate->setOriginalFile(
-                $this->getServicesPath(),
-                $this->configureParameters($originalConfig, true)
-            );
-        }
-
-        if ($newConfig) {
-            $recipeUpdate->setNewFile(
-                $this->getServicesPath(),
-                $this->configureParameters($newConfig, true)
-            );
-        }
-    }
-
-    private function configureParameters(array $parameters, bool $update = false): string
-    {
-        $target = $this->options->get('root-dir').'/'.$this->getServicesPath();
+        $target = $this->options->get('root-dir').'/'.$this->options->expandTargetDir('%CONFIG_DIR%/services.yaml');
         $endAt = 0;
         $isParameters = false;
         $lines = [];
@@ -82,36 +60,31 @@ class ContainerConfigurator extends AbstractConfigurator
                 continue;
             }
             foreach ($parameters as $key => $value) {
-                $matches = [];
-                if (preg_match(sprintf('/^\s+%s\:/', preg_quote($key, '/')), $line, $matches)) {
-                    if ($update) {
-                        $lines[$i] = substr($line, 0, \strlen($matches[0])).' '.str_replace("'", "''", $value)."\n";
-                    }
-
+                if (preg_match(sprintf('/^\s+%s\:/', preg_quote($key, '/')), $line)) {
                     unset($parameters[$key]);
                 }
             }
         }
-
-        if ($parameters) {
-            $parametersLines = [];
-            if (!$endAt) {
-                $parametersLines[] = "parameters:\n";
-            }
-            foreach ($parameters as $key => $value) {
-                if (\is_array($value)) {
-                    $parametersLines[] = sprintf("    %s:\n%s", $key, $this->dumpYaml(2, $value));
-                    continue;
-                }
-                $parametersLines[] = sprintf("    %s: '%s'%s", $key, str_replace("'", "''", $value), "\n");
-            }
-            if (!$endAt) {
-                $parametersLines[] = "\n";
-            }
-            array_splice($lines, $endAt, 0, $parametersLines);
+        if (!$parameters) {
+            return;
         }
 
-        return implode('', $lines);
+        $parametersLines = [];
+        if (!$endAt) {
+            $parametersLines[] = "parameters:\n";
+        }
+        foreach ($parameters as $key => $value) {
+            if (\is_array($value)) {
+                $parametersLines[] = sprintf("    %s:\n%s", $key, $this->dumpYaml(2, $value));
+                continue;
+            }
+            $parametersLines[] = sprintf("    %s: '%s'%s", $key, str_replace("'", "''", $value), "\n");
+        }
+        if (!$endAt) {
+            $parametersLines[] = "\n";
+        }
+        array_splice($lines, $endAt, 0, $parametersLines);
+        file_put_contents($target, implode('', $lines));
     }
 
     private function removeParameters($level, $params, $line)
@@ -141,10 +114,5 @@ class ContainerConfigurator extends AbstractConfigurator
         }
 
         return $line;
-    }
-
-    private function getServicesPath(): string
-    {
-        return $this->options->expandTargetDir('%CONFIG_DIR%/services.yaml');
     }
 }

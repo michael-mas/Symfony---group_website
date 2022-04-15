@@ -149,8 +149,7 @@ class ConsoleOutput extends StreamOutput implements ConsoleOutputInterface
             return fopen('php://output', 'w');
         }
 
-        // Use STDOUT when possible to prevent from opening too many file descriptors
-        return \defined('STDOUT') ? \STDOUT : (@fopen('php://stdout', 'w') ?: fopen('php://output', 'w'));
+        return @fopen('php://stdout', 'w') ?: fopen('php://output', 'w');
     }
 
     /**
@@ -158,11 +157,6 @@ class ConsoleOutput extends StreamOutput implements ConsoleOutputInterface
      */
     private function openErrorStream()
     {
-        if (!$this->hasStderrSupport()) {
-            return fopen('php://output', 'w');
-        }
-
-        // Use STDERR when possible to prevent from opening too many file descriptors
-        return \defined('STDERR') ? \STDERR : (@fopen('php://stderr', 'w') ?: fopen('php://output', 'w'));
+        return fopen($this->hasStderrSupport() ? 'php://stderr' : 'php://output', 'w');
     }
 }

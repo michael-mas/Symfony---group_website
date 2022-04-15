@@ -11,7 +11,6 @@
 
 namespace Symfony\Bundle\FrameworkBundle\DependencyInjection\Compiler;
 
-use Symfony\Component\DependencyInjection\Argument\ServiceClosureArgument;
 use Symfony\Component\DependencyInjection\Compiler\CompilerPassInterface;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 
@@ -29,18 +28,14 @@ class AddAnnotationsCachedReaderPass implements CompilerPassInterface
         // "annotation_reader" at build time don't get any cache
         foreach ($container->findTaggedServiceIds('annotations.cached_reader') as $id => $tags) {
             $reader = $container->getDefinition($id);
-            $reader->setPublic(false);
             $properties = $reader->getProperties();
 
             if (isset($properties['cacheProviderBackup'])) {
                 $provider = $properties['cacheProviderBackup']->getValues()[0];
                 unset($properties['cacheProviderBackup']);
                 $reader->setProperties($properties);
-                $reader->replaceArgument(1, $provider);
-            } elseif (4 <= \count($arguments = $reader->getArguments()) && $arguments[3] instanceof ServiceClosureArgument) {
-                $arguments[1] = $arguments[3]->getValues()[0];
-                unset($arguments[3]);
-                $reader->setArguments($arguments);
+                $container->set($id, null);
+                $container->setDefinition($id, $reader->replaceArgument(1, $provider));
             }
         }
     }

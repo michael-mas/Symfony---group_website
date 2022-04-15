@@ -26,7 +26,7 @@ The ``@Cache`` annotation allows to define HTTP caching:
 
         use Sensio\Bundle\FrameworkExtraBundle\Configuration\Cache;
 
-        #[Cache(expires: 'tomorrow', public: true)]
+        #[Cache(expired: 'tomorrow', public: true)]
         public function index()
         {
         }
@@ -47,7 +47,7 @@ of a controller:
 
     .. code-block:: php-attributes
 
-        #[Cache(expires: 'tomorrow', public: true)]
+        #[Cache(expired: 'tomorrow', public: true)]
         class BlogController extends Controller
         {
         }
@@ -74,10 +74,10 @@ configuration, the latter overrides the former:
 
     .. code-block:: php-attributes
 
-        #[Cache(expires: 'tomorrow')]
+        #[Cache(expired: 'tomorrow')]
         class BlogController extends Controller
         {
-            #[Cache(expires: '+2 days')]
+            #[Cache(expired: '+2 days')]
             public function index()
             {
             }

@@ -13,7 +13,9 @@ namespace Symfony\Flex;
 
 use Composer\Json\JsonFile;
 use Composer\Json\JsonManipulator;
-use Seld\JsonLint\ParsingException;
+use Composer\Semver\Constraint\ConstraintInterface;
+use Composer\Semver\Intervals;
+use Composer\Semver\VersionParser;
 
 /**
  * Synchronize package.json files detected in installed PHP packages with
@@ -37,16 +39,8 @@ class PackageJsonSynchronizer
 
     public function synchronize(array $phpPackages): bool
     {
-        try {
-            JsonFile::parseJson(file_get_contents($this->rootDir.'/package.json'));
-        } catch (ParsingException $e) {
-            // if package.json is invalid (possible during a recipe upgrade), we can't update the file
-            return false;
-        }
-
-        $didChangePackageJson = $this->removeObsoletePackageJsonLinks();
-
-        $dependencies = [];
+        // Remove all links and add again only the existing packages
+        $didAddLink = $this->removePackageJsonLinks((new JsonFile($this->rootDir.'/package.json'))->read());
 
         foreach ($phpPackages as $k => $phpPackage) {
             if (\is_string($phpPackage)) {
@@ -56,29 +50,22 @@ class PackageJsonSynchronizer
                     'keywords' => ['symfony-ux'],
                 ];
             }
-
-            foreach ($this->resolvePackageDependencies($phpPackage) as $dependency => $constraint) {
-                $dependencies[$dependency][$phpPackage['name']] = $constraint;
-            }
+            $didAddLink = $this->addPackageJsonLink($phpPackage) || $didAddLink;
         }
 
-        $didChangePackageJson = $this->registerDependencies($dependencies) || $didChangePackageJson;
+        $this->registerPeerDependencies($phpPackages);
 
         // Register controllers and entrypoints in controllers.json
         $this->registerWebpackResources($phpPackages);
 
-        return $didChangePackageJson;
+        return $didAddLink;
     }
 
-    private function removeObsoletePackageJsonLinks(): bool
+    private function removePackageJsonLinks(array $packageJson): bool
     {
-        $didChangePackageJson = false;
-
-        $manipulator = new JsonManipulator(file_get_contents($this->rootDir.'/package.json'));
-        $content = json_decode($manipulator->getContents(), true);
-
-        $jsDependencies = $content['dependencies'] ?? [];
-        $jsDevDependencies = $content['devDependencies'] ?? [];
+        $didRemoveLink = false;
+        $jsDependencies = $packageJson['dependencies'] ?? [];
+        $jsDevDependencies = $packageJson['devDependencies'] ?? [];
 
         foreach (['dependencies' => $jsDependencies, 'devDependencies' => $jsDevDependencies] as $key => $packages) {
             foreach ($packages as $name => $version) {
@@ -89,78 +76,34 @@ class PackageJsonSynchronizer
                     continue;
                 }
 
-                $manipulator->removeSubNode($key, $name);
-                $didChangePackageJson = true;
+                $manipulator = new JsonManipulator(file_get_contents($this->rootDir.'/package.json'));
+                $manipulator->removeSubNode('devDependencies', $name);
+                file_put_contents($this->rootDir.'/package.json', $manipulator->getContents());
+                $didRemoveLink = true;
             }
         }
+
+        return $didRemoveLink;
+    }
+
+    private function addPackageJsonLink(array $phpPackage): bool
+    {
+        if (!$packageJson = $this->resolvePackageJson($phpPackage)) {
+            return false;
+        }
+
+        $manipulator = new JsonManipulator(file_get_contents($this->rootDir.'/package.json'));
+        $manipulator->addSubNode('devDependencies', '@'.$phpPackage['name'], 'file:'.substr($packageJson->getPath(), 1 + \strlen($this->rootDir), -13));
+
+        $content = json_decode($manipulator->getContents(), true);
+
+        $devDependencies = $content['devDependencies'];
+        uksort($devDependencies, 'strnatcmp');
+        $manipulator->addMainKey('devDependencies', $devDependencies);
 
         file_put_contents($this->rootDir.'/package.json', $manipulator->getContents());
 
-        return $didChangePackageJson;
-    }
-
-    private function resolvePackageDependencies($phpPackage): array
-    {
-        $dependencies = [];
-
-        if (!$packageJson = $this->resolvePackageJson($phpPackage)) {
-            return $dependencies;
-        }
-
-        $dependencies['@'.$phpPackage['name']] = 'file:'.substr($packageJson->getPath(), 1 + \strlen($this->rootDir), -13);
-
-        foreach ($packageJson->read()['peerDependencies'] ?? [] as $peerDependency => $constraint) {
-            $dependencies[$peerDependency] = $constraint;
-        }
-
-        return $dependencies;
-    }
-
-    private function registerDependencies(array $flexDependencies): bool
-    {
-        $didChangePackageJson = false;
-
-        $manipulator = new JsonManipulator(file_get_contents($this->rootDir.'/package.json'));
-        $content = json_decode($manipulator->getContents(), true);
-
-        foreach ($flexDependencies as $dependency => $constraints) {
-            if (1 !== \count($constraints) && 1 !== \count(array_count_values($constraints))) {
-                // If the flex packages have a colliding peer dependency, leave the resolution to the user
-                continue;
-            }
-
-            $constraint = array_shift($constraints);
-
-            $parentNode = isset($content['dependencies'][$dependency]) ? 'dependencies' : 'devDependencies';
-            if (!isset($content[$parentNode][$dependency])) {
-                $content['devDependencies'][$dependency] = $constraint;
-                $didChangePackageJson = true;
-            } elseif ($constraint !== $content[$parentNode][$dependency]) {
-                $content[$parentNode][$dependency] = $constraint;
-                $didChangePackageJson = true;
-            }
-        }
-
-        if ($didChangePackageJson) {
-            if (isset($content['dependencies'])) {
-                $manipulator->addMainKey('dependencies', $content['dependencies']);
-            }
-
-            if (isset($content['devDependencies'])) {
-                $devDependencies = $content['devDependencies'];
-                uksort($devDependencies, 'strnatcmp');
-                $manipulator->addMainKey('devDependencies', $devDependencies);
-            }
-
-            $newContents = $manipulator->getContents();
-            if ($newContents === file_get_contents($this->rootDir.'/package.json')) {
-                return false;
-            }
-
-            file_put_contents($this->rootDir.'/package.json', $manipulator->getContents());
-        }
-
-        return $didChangePackageJson;
+        return true;
     }
 
     private function registerWebpackResources(array $phpPackages)
@@ -197,7 +140,7 @@ class PackageJsonSynchronizer
                     continue;
                 }
 
-                // Otherwise, the package exists: merge new config with user config
+                // Otherwise, the package exists: merge new config with uer config
                 $previousConfig = $previousControllersJson['controllers'][$name][$controllerName];
 
                 $config = [];
@@ -226,6 +169,39 @@ class PackageJsonSynchronizer
         file_put_contents($controllersJsonPath, json_encode($newControllersJson, \JSON_PRETTY_PRINT | \JSON_UNESCAPED_SLASHES)."\n");
     }
 
+    public function registerPeerDependencies(array $phpPackages)
+    {
+        $peerDependencies = [];
+
+        foreach ($phpPackages as $phpPackage) {
+            if (!$packageJson = $this->resolvePackageJson($phpPackage)) {
+                continue;
+            }
+
+            $versionParser = new VersionParser();
+
+            foreach ($packageJson->read()['peerDependencies'] ?? [] as $peerDependency => $constraint) {
+                $peerDependencies[$peerDependency][$constraint] = $versionParser->parseConstraints($constraint);
+            }
+        }
+
+        if (!$peerDependencies) {
+            return;
+        }
+
+        $manipulator = new JsonManipulator(file_get_contents($this->rootDir.'/package.json'));
+        $content = json_decode($manipulator->getContents(), true);
+        $devDependencies = $content['devDependencies'] ?? [];
+
+        foreach ($peerDependencies as $peerDependency => $constraints) {
+            $devDependencies[$peerDependency] = $this->compactConstraints($constraints);
+        }
+        uksort($devDependencies, 'strnatcmp');
+        $manipulator->addMainKey('devDependencies', $devDependencies);
+
+        file_put_contents($this->rootDir.'/package.json', $manipulator->getContents());
+    }
+
     private function resolvePackageJson(array $phpPackage): ?JsonFile
     {
         $packageDir = $this->rootDir.'/'.$this->vendorDir.'/'.$phpPackage['name'];
@@ -245,5 +221,27 @@ class PackageJsonSynchronizer
         }
 
         return null;
+    }
+
+    /**
+     * @param ConstraintInterface[] $constraints
+     */
+    private function compactConstraints(array $constraints): string
+    {
+        foreach ($constraints as $k1 => $constraint1) {
+            foreach ($constraints as $k2 => $constraint2) {
+                if ($k1 !== $k2 && Intervals::isSubsetOf($constraint1, $constraint2)) {
+                    unset($constraints[$k2]);
+                }
+            }
+        }
+
+        uksort($constraints, 'strnatcmp');
+
+        foreach ($constraints as $k => $constraint) {
+            $constraints[$k] = \count($constraints) > 1 && false !== strpos($k, '|') ? '('.$k.')' : $k;
+        }
+
+        return implode(',', $constraints);
     }
 }

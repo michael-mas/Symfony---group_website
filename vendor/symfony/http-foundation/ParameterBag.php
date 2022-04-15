@@ -171,8 +171,6 @@ class ParameterBag implements \IteratorAggregate, \Countable
 
     /**
      * Returns an iterator for parameters.
-     *
-     * @return \ArrayIterator<string, mixed>
      */
     public function getIterator(): \ArrayIterator
     {

@@ -397,6 +397,8 @@ class Response
 
     /**
      * Gets the current response content.
+     *
+     * @return string|false
      */
     public function getContent(): string|false
     {
@@ -1064,7 +1066,8 @@ class Response
         $lastModified = $this->headers->get('Last-Modified');
         $modifiedSince = $request->headers->get('If-Modified-Since');
 
-        if (($ifNoneMatchEtags = $request->getETags()) && (null !== $etag = $this->getEtag())) {
+        if ($ifNoneMatchEtags = $request->getETags()) {
+            $etag = $this->getEtag();
             if (0 == strncmp($etag, 'W/', 2)) {
                 $etag = substr($etag, 2);
             }

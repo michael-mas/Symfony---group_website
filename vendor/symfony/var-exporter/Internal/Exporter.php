@@ -106,15 +106,7 @@ class Exporter
                 }
                 $properties = ['SplObjectStorage' => ["\0" => $properties]];
                 $arrayValue = (array) $value;
-            } elseif ($value instanceof \Serializable
-                || $value instanceof \__PHP_Incomplete_Class
-                || $value instanceof \DatePeriod
-                || (\PHP_VERSION_ID >= 80200 && (
-                    $value instanceof \DateTimeInterface
-                    || $value instanceof \DateTimeZone
-                    || $value instanceof \DateInterval
-                ))
-            ) {
+            } elseif ($value instanceof \Serializable || $value instanceof \__PHP_Incomplete_Class) {
                 ++$objectsCount;
                 $objectsPool[$value] = [$id = \count($objectsPool), serialize($value), [], 0];
                 $value = new Reference($id);
@@ -138,7 +130,7 @@ class Exporter
                 $i = 0;
                 $n = (string) $name;
                 if ('' === $n || "\0" !== $n[0]) {
-                    $c = \PHP_VERSION_ID >= 80100 && $reflector->hasProperty($n) && ($p = $reflector->getProperty($n))->isReadOnly() ? $p->class : 'stdClass';
+                    $c = 'stdClass';
                 } elseif ('*' === $n[1]) {
                     $n = substr($n, 3);
                     $c = $reflector->getProperty($n)->class;

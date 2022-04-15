@@ -131,7 +131,7 @@ EOF
         $locale = $input->getArgument('locale');
         $domain = $input->getOption('domain');
 
-        $exitCode = self::SUCCESS;
+        $exitCode = 0;
 
         /** @var KernelInterface $kernel */
         $kernel = $this->getApplication()->getKernel();
@@ -217,21 +217,16 @@ EOF
                     if (!$currentCatalogue->defines($messageId, $domain)) {
                         $states[] = self::MESSAGE_MISSING;
 
-                        if (!$input->getOption('only-unused')) {
-                            $exitCode = $exitCode | self::EXIT_CODE_MISSING;
-                        }
+                        $exitCode = $exitCode | self::EXIT_CODE_MISSING;
                     }
                 } elseif ($currentCatalogue->defines($messageId, $domain)) {
                     $states[] = self::MESSAGE_UNUSED;
 
-                    if (!$input->getOption('only-missing')) {
-                        $exitCode = $exitCode | self::EXIT_CODE_UNUSED;
-                    }
+                    $exitCode = $exitCode | self::EXIT_CODE_UNUSED;
                 }
 
-                if (!\in_array(self::MESSAGE_UNUSED, $states) && $input->getOption('only-unused')
-                    || !\in_array(self::MESSAGE_MISSING, $states) && $input->getOption('only-missing')
-                ) {
+                if (!\in_array(self::MESSAGE_UNUSED, $states) && true === $input->getOption('only-unused')
+                    || !\in_array(self::MESSAGE_MISSING, $states) && true === $input->getOption('only-missing')) {
                     continue;
                 }
 

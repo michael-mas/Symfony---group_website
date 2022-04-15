@@ -89,8 +89,8 @@
 
                 <div class="log-filter-content">
                     <div class="filter-select-all-or-none">
-                        <button type="button" class="btn btn-link select-all">Select All</button>
-                        <button type="button" class="btn btn-link select-none">Select None</button>
+                        <a href="#" class="select-all">Select All</a>
+                        <a href="#" class="select-none">Select None</a>
                     </div>
 
                     {% for label, value in filters.priority %}
@@ -110,8 +110,8 @@
 
                 <div class="log-filter-content">
                     <div class="filter-select-all-or-none">
-                        <button type="button" class="btn btn-link select-all">Select All</button>
-                        <button type="button" class="btn btn-link select-none">Select None</button>
+                        <a href="#" class="select-all">Select All</a>
+                        <a href="#" class="select-none">Select None</a>
                     </div>
 
                     {% for value in filters.channel %}
@@ -154,10 +154,6 @@
                                     {% else %}
                                         {{ log.type|lower }}
                                     {% endif %}
-                                </span>
-                            {% else %}
-                                <span class="log-type-badge badge badge-{{ css_class }}">
-                                    {{ log.priorityName|lower }}
                                 </span>
                             {% endif %}
                         </td>
@@ -208,7 +204,7 @@
                         <td class="font-normal">
                             {% set context_id = 'context-compiler-' ~ loop.index %}
 
-                            <button type="button" class="btn btn-link sf-toggle" data-toggle-selector="#{{ context_id }}" data-toggle-alt-content="{{ class }}">{{ class }}</button>
+                            <a class="btn btn-link sf-toggle" data-toggle-selector="#{{ context_id }}" data-toggle-alt-content="{{ class }}">{{ class }}</a>
 
                             <div id="{{ context_id }}" class="context sf-toggle-content sf-toggle-hidden">
                                 <ul class="break-long-words">
@@ -247,12 +243,12 @@
 
         {% if has_context %}
             {% set context_id = 'context-' ~ category ~ '-' ~ log_index %}
-            <span><button type="button" class="btn btn-link text-small sf-toggle" data-toggle-selector="#{{ context_id }}" data-toggle-alt-content="Hide context">Show context</button></span>
+            <span><a class="btn btn-link text-small sf-toggle" data-toggle-selector="#{{ context_id }}" data-toggle-alt-content="Hide context">Show context</a></span>
         {% endif %}
 
         {% if has_trace %}
             {% set trace_id = 'trace-' ~ category ~ '-' ~ log_index %}
-            <span><button type="button" class="btn btn-link text-small sf-toggle" data-toggle-selector="#{{ trace_id }}" data-toggle-alt-content="Hide trace">Show trace</button></span>
+            <span><a class="btn btn-link text-small sf-toggle" data-toggle-selector="#{{ trace_id }}" data-toggle-alt-content="Hide trace">Show trace</a></span>
 
             <div id="{{ trace_id }}" class="context sf-toggle-content sf-toggle-hidden">
                 {{ profiler_dump(log.context.exception.trace, maxDepth=1) }}

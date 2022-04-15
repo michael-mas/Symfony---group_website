@@ -30,7 +30,7 @@ class Psr16Cache implements CacheInterface, PruneableInterface, ResettableInterf
 
     private const METADATA_EXPIRY_OFFSET = 1527506807;
 
-    private ?\Closure $createCacheItem = null;
+    private \Closure $createCacheItem;
     private $cacheItemPrototype = null;
 
     public function __construct(CacheItemPoolInterface $pool)

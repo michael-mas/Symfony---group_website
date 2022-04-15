@@ -142,17 +142,24 @@ class Crawler implements \Countable, \IteratorAggregate
             return;
         }
 
-        $charset = preg_match('//u', $content) ? 'UTF-8' : 'ISO-8859-1';
+        $charset = null;
+        if (false !== $pos = stripos($type, 'charset=')) {
+            $charset = substr($type, $pos + 8);
+            if (false !== $pos = strpos($charset, ';')) {
+                $charset = substr($charset, 0, $pos);
+            }
+        }
 
         // http://www.w3.org/TR/encoding/#encodings
         // http://www.w3.org/TR/REC-xml/#NT-EncName
-        $content = preg_replace_callback('/(charset *= *["\']?)([a-zA-Z\-0-9_:.]+)/i', function ($m) use (&$charset) {
-            if ('charset=' === $this->convertToHtmlEntities('charset=', $m[2])) {
-                $charset = $m[2];
-            }
+        if (null === $charset &&
+            preg_match('/\<meta[^\>]+charset *= *["\']?([a-zA-Z\-0-9_:.]+)/i', $content, $matches)) {
+            $charset = $matches[1];
+        }
 
-            return $m[1].$charset;
-        }, $content, 1);
+        if (null === $charset) {
+            $charset = preg_match('//u', $content) ? 'UTF-8' : 'ISO-8859-1';
+        }
 
         if ('x' === $xmlMatches[1]) {
             $this->addXmlContent($content, $charset);
@@ -622,6 +629,8 @@ class Crawler implements \Countable, \IteratorAggregate
      *
      * Since an XPath expression might evaluate to either a simple type or a \DOMNodeList,
      * this method will return either an array of simple types or a new Crawler instance.
+     *
+     * @return array|Crawler
      */
     public function evaluate(string $xpath): array|Crawler
     {
@@ -1046,7 +1055,7 @@ class Crawler implements \Countable, \IteratorAggregate
 
     private function parseHtml5(string $htmlContent, string $charset = 'UTF-8'): \DOMDocument
     {
-        return $this->html5Parser->parse($this->convertToHtmlEntities($htmlContent, $charset));
+        return $this->html5Parser->parse($this->convertToHtmlEntities($htmlContent, $charset), [], $charset);
     }
 
     private function parseXhtml(string $htmlContent, string $charset = 'UTF-8'): \DOMDocument
@@ -1075,12 +1084,12 @@ class Crawler implements \Countable, \IteratorAggregate
         set_error_handler(function () { throw new \Exception(); });
 
         try {
-            return mb_encode_numericentity($htmlContent, [0x80, 0xFFFF, 0, 0xFFFF], $charset);
-        } catch (\Exception|\ValueError $e) {
+            return mb_convert_encoding($htmlContent, 'HTML-ENTITIES', $charset);
+        } catch (\Exception | \ValueError $e) {
             try {
                 $htmlContent = iconv($charset, 'UTF-8', $htmlContent);
-                $htmlContent = mb_encode_numericentity($htmlContent, [0x80, 0xFFFF, 0, 0xFFFF], 'UTF-8');
-            } catch (\Exception|\ValueError $e) {
+                $htmlContent = mb_convert_encoding($htmlContent, 'HTML-ENTITIES', 'UTF-8');
+            } catch (\Exception | \ValueError $e) {
             }
 
             return $htmlContent;

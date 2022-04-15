@@ -45,11 +45,9 @@ class Downloader
     private $degradedMode = false;
     private $endpoints;
     private $index;
-    private $conflicts;
     private $legacyEndpoint;
     private $caFile;
     private $enabled = true;
-    private $composer;
 
     public function __construct(Composer $composer, IoInterface $io, HttpDownloader $rfs)
     {
@@ -92,7 +90,6 @@ class Downloader
         $this->rfs = $rfs;
         $this->cache = new Cache($io, $config->get('cache-repo-dir').'/flex');
         $this->sess = bin2hex(random_bytes(16));
-        $this->composer = $composer;
     }
 
     public function getSessionId(): string
@@ -133,26 +130,9 @@ class Downloader
     {
         $this->initialize();
 
-        if ($this->conflicts) {
-            $lockedRepository = $this->composer->getLocker()->getLockedRepository();
-            foreach ($this->conflicts as $conflicts) {
-                foreach ($conflicts as $package => $versions) {
-                    foreach ($versions as $version => $conflicts) {
-                        foreach ($conflicts as $conflictingPackage => $constraint) {
-                            if ($lockedRepository->findPackage($conflictingPackage, $constraint)) {
-                                unset($this->index[$package][$version]);
-                            }
-                        }
-                    }
-                }
-            }
-            $this->conflicts = [];
-        }
-
         $data = [];
         $urls = [];
         $chunk = '';
-        $recipeRef = null;
         foreach ($operations as $operation) {
             $o = 'i';
             if ($operation instanceof UpdateOperation) {
@@ -163,16 +143,9 @@ class Downloader
                 if ($operation instanceof UninstallOperation) {
                     $o = 'r';
                 }
-
-                if ($operation instanceof InformationOperation) {
-                    $recipeRef = $operation->getRecipeRef();
-                }
             }
 
             $version = $package->getPrettyVersion();
-            if ($operation instanceof InformationOperation && $operation->getVersion()) {
-                $version = $operation->getVersion();
-            }
             if (0 === strpos($version, 'dev-') && isset($package->getExtra()['branch-alias'])) {
                 $branchAliases = $package->getExtra()['branch-alias'];
                 if (
@@ -197,45 +170,20 @@ class Downloader
                 $version = $version[0].'.'.($version[1] ?? '9999999');
 
                 foreach (array_reverse($recipeVersions) as $v => $endpoint) {
-                    if (version_compare($version, $v, '<')) {
-                        continue;
-                    }
-
-                    $data['locks'][$package->getName()]['version'] = $version;
-                    $data['locks'][$package->getName()]['recipe']['version'] = $v;
-                    $links = $this->endpoints[$endpoint]['_links'];
-
-                    if (null !== $recipeRef && isset($links['archived_recipes_template'])) {
-                        if (isset($links['archived_recipes_template_relative'])) {
-                            $links['archived_recipes_template'] = preg_replace('{[^/\?]*+(?=\?|$)}', $links['archived_recipes_template_relative'], $endpoint, 1);
-                        }
-
-                        $urls[] = strtr($links['archived_recipes_template'], [
+                    if (version_compare($version, $v, '>=')) {
+                        $data['locks'][$package->getName()]['version'] = $version;
+                        $data['locks'][$package->getName()]['recipe']['version'] = $v;
+                        $urls[] = strtr($this->endpoints[$endpoint]['_links']['recipe_template'], [
                             '{package_dotted}' => str_replace('/', '.', $package->getName()),
-                            '{ref}' => $recipeRef,
+                            '{package}' => $package->getName(),
+                            '{version}' => $v,
                         ]);
 
                         break;
                     }
-
-                    if (isset($links['recipes_template_relative'])) {
-                        $links['recipes_template'] = preg_replace('{[^/\?]*+(?=\?|$)}', $links['recipes_template_relative'], $endpoint, 1);
-                    }
-
-                    $urls[] = strtr($links['recipe_template'], [
-                        '{package_dotted}' => str_replace('/', '.', $package->getName()),
-                        '{package}' => $package->getName(),
-                        '{version}' => $v,
-                    ]);
-
-                    break;
                 }
 
                 continue;
-            }
-
-            if (\is_array($recipeVersions)) {
-                $data['conflicts'][$package->getName()] = true;
             }
 
             if (null !== $this->endpoints) {
@@ -308,16 +256,6 @@ class Downloader
     }
 
     /**
-     * Used to "hide" a recipe version so that the next most-recent will be returned.
-     *
-     * This is used when resolving "conflicts".
-     */
-    public function removeRecipeFromIndex(string $packageName, string $version)
-    {
-        unset($this->index[$packageName][$version]);
-    }
-
-    /**
      * Fetches and decodes JSON HTTP response bodies.
      */
     private function get(array $urls, bool $isRecipe = false, int $try = 3): array
@@ -332,11 +270,6 @@ class Downloader
 
             if (preg_match('{^https?://api\.github\.com/}', $url)) {
                 $headers[] = 'Accept: application/vnd.github.v3.raw';
-            } elseif (preg_match('{^https?://raw\.githubusercontent\.com/}', $url) && $this->io->hasAuthentication('github.com')) {
-                $auth = $this->io->getAuthentication('github.com');
-                if ('x-oauth-basic' === $auth['password']) {
-                    $headers[] = 'Authorization: token '.$auth['username'];
-                }
             } elseif ($this->legacyEndpoint) {
                 $headers[] = 'Package-Session: '.$this->sess;
             }
@@ -449,10 +382,9 @@ class Downloader
             foreach ($config['recipes'] ?? [] as $package => $versions) {
                 $this->index[$package] = $this->index[$package] ?? array_fill_keys($versions, $endpoint);
             }
-            $this->conflicts[] = $config['recipe-conflicts'] ?? [];
             self::$versions += $config['versions'] ?? [];
             self::$aliases += $config['aliases'] ?? [];
-            unset($config['recipes'], $config['recipe-conflicts'], $config['versions'], $config['aliases']);
+            unset($config['recipes'], $config['versions'], $config['aliases']);
             $this->endpoints[$endpoint] = $config;
         }
     }
@@ -462,9 +394,6 @@ class Downloader
         $url = preg_replace('{^https://api.github.com/repos/([^/]++/[^/]++)/contents/}', '$1/', $url);
         $url = preg_replace('{^https://raw.githubusercontent.com/([^/]++/[^/]++)/}', '$1/', $url);
 
-        $key = preg_replace('{[^a-z0-9.]}i', '-', $url);
-
-        // eCryptfs can have problems with filenames longer than around 143 chars
-        return \strlen($key) > 140 ? md5($url) : $key;
+        return preg_replace('{[^a-z0-9.]}i', '-', $url);
     }
 }

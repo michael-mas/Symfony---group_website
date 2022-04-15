@@ -105,6 +105,8 @@ class InputArgument
 
     /**
      * Returns the default value.
+     *
+     * @return string|bool|int|float|array|null
      */
     public function getDefault(): string|bool|int|float|array|null
     {

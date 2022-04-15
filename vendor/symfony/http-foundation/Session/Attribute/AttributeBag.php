@@ -130,8 +130,6 @@ class AttributeBag implements AttributeBagInterface, \IteratorAggregate, \Counta
 
     /**
      * Returns an iterator for attributes.
-     *
-     * @return \ArrayIterator<string, mixed>
      */
     public function getIterator(): \ArrayIterator
     {

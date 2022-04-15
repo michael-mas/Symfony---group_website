@@ -26,12 +26,12 @@ trait AbstractAdapterTrait
     use LoggerAwareTrait;
 
     /**
-     * needs to be set by class, signature is function(string <key>, mixed <value>, bool <isHit>).
+     * needs to be set by class, signature is function(string <key>, mixed <value>, bool <isHit>)
      */
     private static \Closure $createCacheItem;
 
     /**
-     * needs to be set by class, signature is function(array <deferred>, string <namespace>, array <&expiredIds>).
+     * needs to be set by class, signature is function(array <deferred>, string <namespace>, array <&expiredIds>)
      */
     private static \Closure $mergeByLifetime;
 
@@ -120,16 +120,13 @@ trait AbstractAdapterTrait
                 }
             }
             $namespaceToClear = $this->namespace.$namespaceVersionToClear;
-            $namespaceVersion = self::formatNamespaceVersion(mt_rand());
+            $namespaceVersion = strtr(substr_replace(base64_encode(pack('V', mt_rand())), static::NS_SEPARATOR, 5), '/', '_');
             try {
-                $e = $this->doSave([static::NS_SEPARATOR.$this->namespace => $namespaceVersion], 0);
+                $cleared = $this->doSave([static::NS_SEPARATOR.$this->namespace => $namespaceVersion], 0);
             } catch (\Exception $e) {
-            }
-            if (true !== $e && [] !== $e) {
                 $cleared = false;
-                $message = 'Failed to save the new namespace'.($e instanceof \Exception ? ': '.$e->getMessage() : '.');
-                CacheItem::log($this->logger, $message, ['exception' => $e instanceof \Exception ? $e : null, 'cache-adapter' => get_debug_type($this)]);
-            } else {
+            }
+            if ($cleared = true === $cleared || [] === $cleared) {
                 $this->namespaceVersion = $namespaceVersion;
                 $this->ids = [];
             }
@@ -353,16 +350,11 @@ trait AbstractAdapterTrait
                 foreach ($this->doFetch([static::NS_SEPARATOR.$this->namespace]) as $v) {
                     $this->namespaceVersion = $v;
                 }
-                $e = true;
                 if ('1'.static::NS_SEPARATOR === $this->namespaceVersion) {
-                    $this->namespaceVersion = self::formatNamespaceVersion(time());
-                    $e = $this->doSave([static::NS_SEPARATOR.$this->namespace => $this->namespaceVersion], 0);
+                    $this->namespaceVersion = strtr(substr_replace(base64_encode(pack('V', time())), static::NS_SEPARATOR, 5), '/', '_');
+                    $this->doSave([static::NS_SEPARATOR.$this->namespace => $this->namespaceVersion], 0);
                 }
             } catch (\Exception $e) {
-            }
-            if (true !== $e && [] !== $e) {
-                $message = 'Failed to save the new namespace'.($e instanceof \Exception ? ': '.$e->getMessage() : '.');
-                CacheItem::log($this->logger, $message, ['exception' => $e instanceof \Exception ? $e : null, 'cache-adapter' => get_debug_type($this)]);
             }
         }
 
@@ -394,10 +386,5 @@ trait AbstractAdapterTrait
     public static function handleUnserializeCallback(string $class)
     {
         throw new \DomainException('Class not found: '.$class);
-    }
-
-    private static function formatNamespaceVersion(int $value): string
-    {
-        return strtr(substr_replace(base64_encode(pack('V', $value)), static::NS_SEPARATOR, 5), '/', '_');
     }
 }

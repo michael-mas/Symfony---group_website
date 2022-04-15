@@ -46,9 +46,9 @@ final class LoginLinkHandler implements LoginLinkHandlerInterface
 
     public function createLoginLink(UserInterface $user, Request $request = null): LoginLinkDetails
     {
-        $expires = time() + $this->options['lifetime'];
-        $expiresAt = new \DateTimeImmutable('@'.$expires);
+        $expiresAt = new \DateTimeImmutable(sprintf('+%d seconds', $this->options['lifetime']));
 
+        $expires = $expiresAt->format('U');
         $parameters = [
             'user' => $user->getUserIdentifier(),
             'expires' => $expires,

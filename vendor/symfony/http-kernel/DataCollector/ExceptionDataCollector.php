@@ -47,6 +47,9 @@ class ExceptionDataCollector extends DataCollector
         return isset($this->data['exception']);
     }
 
+    /**
+     * @return \Exception|FlattenException
+     */
     public function getException(): \Exception|FlattenException
     {
         return $this->data['exception'];

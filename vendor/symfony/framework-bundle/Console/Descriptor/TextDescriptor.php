@@ -348,8 +348,6 @@ class TextDescriptor extends Descriptor
                     $argumentsInformation[] = sprintf('Service locator (%d element(s))', \count($argument->getValues()));
                 } elseif ($argument instanceof Definition) {
                     $argumentsInformation[] = 'Inlined Service';
-                } elseif ($argument instanceof \UnitEnum) {
-                    $argumentsInformation[] = var_export($argument, true);
                 } elseif ($argument instanceof AbstractArgument) {
                     $argumentsInformation[] = sprintf('Abstract argument (%s)', $argument->getText());
                 } else {

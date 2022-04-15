@@ -1,0 +1,16 @@
+ddb33e,127.0.0.1,GET,https://127.0.0.1:8000/,1650045083,,404
+489a2c,127.0.0.1,GET,https://127.0.0.1:8000/template,1650045087,,200
+dc4d9f,127.0.0.1,GET,https://127.0.0.1:8000/produits/alls,1650045091,,200
+4ac900,127.0.0.1,GET,https://127.0.0.1:8000/uploads/produits/Album.jpg,1650045091,e03fba,404
+e03fba,127.0.0.1,GET,https://127.0.0.1:8000/uploads/produits/Album.jpg,1650045091,,404
+2981f2,127.0.0.1,GET,https://127.0.0.1:8000/uploads/produits/Tshirt1.png,1650045091,dad84f,404
+dad84f,127.0.0.1,GET,https://127.0.0.1:8000/uploads/produits/Tshirt1.png,1650045091,,404
+60a152,127.0.0.1,GET,https://127.0.0.1:8000/produits/edit/1,1650045098,,200
+13173d,127.0.0.1,POST,https://127.0.0.1:8000/produits/edit/1,1650045106,,302
+c44a21,127.0.0.1,GET,https://127.0.0.1:8000/produits/,1650045106,,200
+2f320a,127.0.0.1,GET,https://127.0.0.1:8000/uploads/produits/Album.jpg,1650045106,ffa318,404
+ffa318,127.0.0.1,GET,https://127.0.0.1:8000/uploads/produits/Album.jpg,1650045106,,404
+c1b690,127.0.0.1,GET,https://127.0.0.1:8000/uploads/produits/Tshirt1.png,1650045106,2d8e02,404
+2d8e02,127.0.0.1,GET,https://127.0.0.1:8000/uploads/produits/Tshirt1.png,1650045106,,404
+10942f,127.0.0.1,GET,https://127.0.0.1:8000/logout,1650045119,,302
+bc8df7,127.0.0.1,GET,https://127.0.0.1:8000/login,1650045119,,200

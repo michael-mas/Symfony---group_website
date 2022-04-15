@@ -63,8 +63,10 @@ class TestContainer extends Container
 
     /**
      * {@inheritdoc}
+     *
+     * @return array|bool|float|int|string|null
      */
-    public function getParameter(string $name): array|bool|string|int|float|\UnitEnum|null
+    public function getParameter(string $name): array|bool|float|int|string|null
     {
         return $this->getPublicContainer()->getParameter($name);
     }

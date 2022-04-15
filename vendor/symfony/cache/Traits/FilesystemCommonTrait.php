@@ -109,7 +109,7 @@ trait FilesystemCommonTrait
             fclose($h);
 
             if (null !== $expiresAt) {
-                touch($this->tmp, $expiresAt ?: time() + 31556952); // 1 year in seconds
+                touch($this->tmp, $expiresAt);
             }
 
             return rename($this->tmp, $file);

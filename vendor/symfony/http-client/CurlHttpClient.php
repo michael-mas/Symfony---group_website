@@ -12,7 +12,7 @@
 namespace Symfony\Component\HttpClient;
 
 use Psr\Log\LoggerAwareInterface;
-use Psr\Log\LoggerInterface;
+use Psr\Log\LoggerAwareTrait;
 use Symfony\Component\HttpClient\Exception\InvalidArgumentException;
 use Symfony\Component\HttpClient\Exception\TransportException;
 use Symfony\Component\HttpClient\Internal\CurlClientState;
@@ -35,6 +35,7 @@ use Symfony\Contracts\Service\ResetInterface;
 final class CurlHttpClient implements HttpClientInterface, LoggerAwareInterface, ResetInterface
 {
     use HttpClientTrait;
+    use LoggerAwareTrait;
 
     private array $defaultOptions = self::OPTIONS_DEFAULTS + [
         'auth_ntlm' => null, // array|string - an array containing the username as first value, and optionally the
@@ -43,14 +44,13 @@ final class CurlHttpClient implements HttpClientInterface, LoggerAwareInterface,
             'curl' => [],    // A list of extra curl options indexed by their corresponding CURLOPT_*
         ],
     ];
-    private static array $emptyDefaults = self::OPTIONS_DEFAULTS + ['auth_ntlm' => null];
-
-    private ?LoggerInterface $logger = null;
 
     /**
      * An internal object to share state between the client and its responses.
      */
     private $multi;
+
+    private static array $curlVersion;
 
     /**
      * @param array $defaultOptions     Default request's options
@@ -71,12 +71,33 @@ final class CurlHttpClient implements HttpClientInterface, LoggerAwareInterface,
             [, $this->defaultOptions] = self::prepareRequest(null, null, $defaultOptions, $this->defaultOptions);
         }
 
-        $this->multi = new CurlClientState($maxHostConnections, $maxPendingPushes);
-    }
+        $this->multi = new CurlClientState();
+        self::$curlVersion = self::$curlVersion ?? curl_version();
 
-    public function setLogger(LoggerInterface $logger): void
-    {
-        $this->logger = $this->multi->logger = $logger;
+        // Don't enable HTTP/1.1 pipelining: it forces responses to be sent in order
+        if (\defined('CURLPIPE_MULTIPLEX')) {
+            curl_multi_setopt($this->multi->handle, \CURLMOPT_PIPELINING, \CURLPIPE_MULTIPLEX);
+        }
+        if (\defined('CURLMOPT_MAX_HOST_CONNECTIONS')) {
+            $maxHostConnections = curl_multi_setopt($this->multi->handle, \CURLMOPT_MAX_HOST_CONNECTIONS, 0 < $maxHostConnections ? $maxHostConnections : \PHP_INT_MAX) ? 0 : $maxHostConnections;
+        }
+        if (\defined('CURLMOPT_MAXCONNECTS') && 0 < $maxHostConnections) {
+            curl_multi_setopt($this->multi->handle, \CURLMOPT_MAXCONNECTS, $maxHostConnections);
+        }
+
+        // Skip configuring HTTP/2 push when it's unsupported or buggy, see https://bugs.php.net/77535
+        if (0 >= $maxPendingPushes) {
+            return;
+        }
+
+        // HTTP/2 push crashes before curl 7.61
+        if (!\defined('CURLMOPT_PUSHFUNCTION') || 0x073D00 > self::$curlVersion['version_number'] || !(\CURL_VERSION_HTTP2 & self::$curlVersion['features'])) {
+            return;
+        }
+
+        curl_multi_setopt($this->multi->handle, \CURLMOPT_PUSHFUNCTION, function ($parent, $pushed, array $requestHeaders) use ($maxPendingPushes) {
+            return $this->handlePush($parent, $pushed, $requestHeaders, $maxPendingPushes);
+        });
     }
 
     /**
@@ -90,10 +111,6 @@ final class CurlHttpClient implements HttpClientInterface, LoggerAwareInterface,
         $scheme = $url['scheme'];
         $authority = $url['authority'];
         $host = parse_url($authority, \PHP_URL_HOST);
-        $proxy = $options['proxy']
-            ?? ('https:' === $url['scheme'] ? $_SERVER['https_proxy'] ?? $_SERVER['HTTPS_PROXY'] ?? null : null)
-            // Ignore HTTP_PROXY except on the CLI to work around httpoxy set of vulnerabilities
-            ?? $_SERVER['http_proxy'] ?? (\in_array(\PHP_SAPI, ['cli', 'phpdbg'], true) ? $_SERVER['HTTP_PROXY'] ?? null : null) ?? $_SERVER['all_proxy'] ?? $_SERVER['ALL_PROXY'] ?? null;
         $url = implode('', $url);
 
         if (!isset($options['normalized_headers']['user-agent'])) {
@@ -109,7 +126,7 @@ final class CurlHttpClient implements HttpClientInterface, LoggerAwareInterface,
             \CURLOPT_MAXREDIRS => 0 < $options['max_redirects'] ? $options['max_redirects'] : 0,
             \CURLOPT_COOKIEFILE => '', // Keep track of cookies during redirects
             \CURLOPT_TIMEOUT => 0,
-            \CURLOPT_PROXY => $proxy,
+            \CURLOPT_PROXY => $options['proxy'],
             \CURLOPT_NOPROXY => $options['no_proxy'] ?? $_SERVER['no_proxy'] ?? $_SERVER['NO_PROXY'] ?? '',
             \CURLOPT_SSL_VERIFYPEER => $options['verify_peer'],
             \CURLOPT_SSL_VERIFYHOST => $options['verify_host'] ? 2 : 0,
@@ -126,7 +143,7 @@ final class CurlHttpClient implements HttpClientInterface, LoggerAwareInterface,
             $curlopts[\CURLOPT_HTTP_VERSION] = \CURL_HTTP_VERSION_1_0;
         } elseif (1.1 === (float) $options['http_version']) {
             $curlopts[\CURLOPT_HTTP_VERSION] = \CURL_HTTP_VERSION_1_1;
-        } elseif (\defined('CURL_VERSION_HTTP2') && (\CURL_VERSION_HTTP2 & CurlClientState::$curlVersion['features']) && ('https:' === $scheme || 2.0 === (float) $options['http_version'])) {
+        } elseif (\defined('CURL_VERSION_HTTP2') && (\CURL_VERSION_HTTP2 & self::$curlVersion['features']) && ('https:' === $scheme || 2.0 === (float) $options['http_version'])) {
             $curlopts[\CURLOPT_HTTP_VERSION] = \CURL_HTTP_VERSION_2_0;
         }
 
@@ -169,9 +186,11 @@ final class CurlHttpClient implements HttpClientInterface, LoggerAwareInterface,
             $this->multi->dnsCache->evictions = [];
             $port = parse_url($authority, \PHP_URL_PORT) ?: ('http:' === $scheme ? 80 : 443);
 
-            if ($resolve && 0x072A00 > CurlClientState::$curlVersion['version_number']) {
+            if ($resolve && 0x072A00 > self::$curlVersion['version_number']) {
                 // DNS cache removals require curl 7.42 or higher
-                $this->multi->reset();
+                // On lower versions, we have to create a new multi handle
+                curl_multi_close($this->multi->handle);
+                $this->multi->handle = (new self())->multi->handle;
             }
 
             foreach ($options['resolve'] as $host => $ip) {
@@ -200,14 +219,7 @@ final class CurlHttpClient implements HttpClientInterface, LoggerAwareInterface,
             $options['headers'][] = 'Accept-Encoding: gzip'; // Expose only one encoding, some servers mess up when more are provided
         }
 
-        $hasContentLength = isset($options['normalized_headers']['content-length'][0]);
-
-        foreach ($options['headers'] as $i => $header) {
-            if ($hasContentLength && 0 === stripos($header, 'Content-Length:')) {
-                // Let curl handle Content-Length headers
-                unset($options['headers'][$i]);
-                continue;
-            }
+        foreach ($options['headers'] as $header) {
             if (':' === $header[-2] && \strlen($header) - 2 === strpos($header, ': ')) {
                 // curl requires a special syntax to send empty headers
                 $curlopts[\CURLOPT_HTTPHEADER][] = substr_replace($header, ';', -2);
@@ -234,7 +246,7 @@ final class CurlHttpClient implements HttpClientInterface, LoggerAwareInterface,
                 };
             }
 
-            if ($hasContentLength) {
+            if (isset($options['normalized_headers']['content-length'][0])) {
                 $curlopts[\CURLOPT_INFILESIZE] = substr($options['normalized_headers']['content-length'][0], \strlen('Content-Length: '));
             } elseif (!isset($options['normalized_headers']['transfer-encoding'])) {
                 $curlopts[\CURLOPT_HTTPHEADER][] = 'Transfer-Encoding: chunked'; // Enable chunked request bodies
@@ -242,12 +254,8 @@ final class CurlHttpClient implements HttpClientInterface, LoggerAwareInterface,
 
             if ('POST' !== $method) {
                 $curlopts[\CURLOPT_UPLOAD] = true;
-
-                if (!isset($options['normalized_headers']['content-type'])) {
-                    $curlopts[\CURLOPT_HTTPHEADER][] = 'Content-Type: application/x-www-form-urlencoded';
-                }
             }
-        } elseif ('' !== $body || 'POST' === $method || $hasContentLength) {
+        } elseif ('' !== $body || 'POST' === $method) {
             $curlopts[\CURLOPT_POSTFIELDS] = $body;
         }
 
@@ -298,7 +306,6 @@ final class CurlHttpClient implements HttpClientInterface, LoggerAwareInterface,
         if (!$pushedResponse) {
             $ch = curl_init();
             $this->logger && $this->logger->info(sprintf('Request: "%s %s"', $method, $url));
-            $curlopts += [\CURLOPT_SHARE => $this->multi->share];
         }
 
         foreach ($curlopts as $opt => $value) {
@@ -308,7 +315,7 @@ final class CurlHttpClient implements HttpClientInterface, LoggerAwareInterface,
             }
         }
 
-        return $pushedResponse ?? new CurlResponse($this->multi, $ch, $options, $this->logger, $method, self::createRedirectResolver($options, $host), CurlClientState::$curlVersion['version_number']);
+        return $pushedResponse ?? new CurlResponse($this->multi, $ch, $options, $this->logger, $method, self::createRedirectResolver($options, $host), self::$curlVersion['version_number']);
     }
 
     /**
@@ -322,8 +329,7 @@ final class CurlHttpClient implements HttpClientInterface, LoggerAwareInterface,
 
         if ($this->multi->handle instanceof \CurlMultiHandle) {
             $active = 0;
-            while (\CURLM_CALL_MULTI_PERFORM === curl_multi_exec($this->multi->handle, $active)) {
-            }
+            while (\CURLM_CALL_MULTI_PERFORM === curl_multi_exec($this->multi->handle, $active));
         }
 
         return new ResponseStream(CurlResponse::stream($responses, $timeout));
@@ -331,7 +337,65 @@ final class CurlHttpClient implements HttpClientInterface, LoggerAwareInterface,
 
     public function reset()
     {
+        $this->multi->logger = $this->logger;
         $this->multi->reset();
+    }
+
+    public function __sleep(): array
+    {
+        throw new \BadMethodCallException('Cannot serialize '.__CLASS__);
+    }
+
+    public function __wakeup()
+    {
+        throw new \BadMethodCallException('Cannot unserialize '.__CLASS__);
+    }
+
+    public function __destruct()
+    {
+        $this->multi->logger = $this->logger;
+    }
+
+    private function handlePush($parent, $pushed, array $requestHeaders, int $maxPendingPushes): int
+    {
+        $headers = [];
+        $origin = curl_getinfo($parent, \CURLINFO_EFFECTIVE_URL);
+
+        foreach ($requestHeaders as $h) {
+            if (false !== $i = strpos($h, ':', 1)) {
+                $headers[substr($h, 0, $i)][] = substr($h, 1 + $i);
+            }
+        }
+
+        if (!isset($headers[':method']) || !isset($headers[':scheme']) || !isset($headers[':authority']) || !isset($headers[':path'])) {
+            $this->logger && $this->logger->debug(sprintf('Rejecting pushed response from "%s": pushed headers are invalid', $origin));
+
+            return \CURL_PUSH_DENY;
+        }
+
+        $url = $headers[':scheme'][0].'://'.$headers[':authority'][0];
+
+        // curl before 7.65 doesn't validate the pushed ":authority" header,
+        // but this is a MUST in the HTTP/2 RFC; let's restrict pushes to the original host,
+        // ignoring domains mentioned as alt-name in the certificate for now (same as curl).
+        if (!str_starts_with($origin, $url.'/')) {
+            $this->logger && $this->logger->debug(sprintf('Rejecting pushed response from "%s": server is not authoritative for "%s"', $origin, $url));
+
+            return \CURL_PUSH_DENY;
+        }
+
+        if ($maxPendingPushes <= \count($this->multi->pushedResponses)) {
+            $fifoUrl = key($this->multi->pushedResponses);
+            unset($this->multi->pushedResponses[$fifoUrl]);
+            $this->logger && $this->logger->debug(sprintf('Evicting oldest pushed response: "%s"', $fifoUrl));
+        }
+
+        $url .= $headers[':path'][0];
+        $this->logger && $this->logger->debug(sprintf('Queueing pushed response: "%s"', $url));
+
+        $this->multi->pushedResponses[$url] = new PushedResponse(new CurlResponse($this->multi, $pushed), $headers, $this->multi->openHandles[(int) $parent][1] ?? [], $pushed);
+
+        return \CURL_PUSH_OK;
     }
 
     /**
@@ -417,15 +481,8 @@ final class CurlHttpClient implements HttpClientInterface, LoggerAwareInterface,
             }
 
             $url = self::parseUrl(curl_getinfo($ch, \CURLINFO_EFFECTIVE_URL));
-            $url = self::resolveUrl($location, $url);
 
-            curl_setopt($ch, \CURLOPT_PROXY, $options['proxy']
-                ?? ('https:' === $url['scheme'] ? $_SERVER['https_proxy'] ?? $_SERVER['HTTPS_PROXY'] ?? null : null)
-                // Ignore HTTP_PROXY except on the CLI to work around httpoxy set of vulnerabilities
-                ?? $_SERVER['http_proxy'] ?? (\in_array(\PHP_SAPI, ['cli', 'phpdbg'], true) ? $_SERVER['HTTP_PROXY'] ?? null : null) ?? $_SERVER['all_proxy'] ?? $_SERVER['ALL_PROXY'] ?? null
-            );
-
-            return implode('', $url);
+            return implode('', self::resolveUrl($location, $url));
         };
     }
 
@@ -455,6 +512,8 @@ final class CurlHttpClient implements HttpClientInterface, LoggerAwareInterface,
             \CURLOPT_INFILESIZE => 'body',
             \CURLOPT_POSTFIELDS => 'body',
             \CURLOPT_UPLOAD => 'body',
+            \CURLOPT_PINNEDPUBLICKEY => 'peer_fingerprint',
+            \CURLOPT_UNIX_SOCKET_PATH => 'bindto',
             \CURLOPT_INTERFACE => 'bindto',
             \CURLOPT_TIMEOUT_MS => 'max_duration',
             \CURLOPT_TIMEOUT => 'max_duration',
@@ -476,14 +535,6 @@ final class CurlHttpClient implements HttpClientInterface, LoggerAwareInterface,
             \CURLOPT_NOPROGRESS => 'on_progress',
             \CURLOPT_PROGRESSFUNCTION => 'on_progress',
         ];
-
-        if (\defined('CURLOPT_UNIX_SOCKET_PATH')) {
-            $curloptsToConfig[\CURLOPT_UNIX_SOCKET_PATH] = 'bindto';
-        }
-
-        if (\defined('CURLOPT_PINNEDPUBLICKEY')) {
-            $curloptsToConfig[\CURLOPT_PINNEDPUBLICKEY] = 'peer_fingerprint';
-        }
 
         $curloptsToCheck = [
             \CURLOPT_PRIVATE,

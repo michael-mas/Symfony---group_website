@@ -19,7 +19,6 @@ use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Loader\XmlFileLoader;
 use Symfony\Component\ExpressionLanguage\ExpressionLanguage;
 use Symfony\Component\HttpKernel\DependencyInjection\Extension;
-use Symfony\Component\HttpKernel\Kernel;
 use Symfony\Component\Security\Core\Authorization\ExpressionLanguage as SecurityExpressionLanguage;
 
 /**
@@ -40,11 +39,7 @@ class SensioFrameworkExtraExtension extends Extension
         if ($config['router']['annotations']) {
             @trigger_error(sprintf('Enabling the "sensio_framework_extra.router.annotations" configuration is deprecated since version 5.2. Set it to false and use the "%s" annotation from Symfony itself.', \Symfony\Component\Routing\Annotation\Route::class), \E_USER_DEPRECATED);
 
-            if (Kernel::MAJOR_VERSION < 5) {
-                $annotationsToLoad[] = 'routing-4.4.xml';
-            } else {
-                $annotationsToLoad[] = 'routing.xml';
-            }
+            $annotationsToLoad[] = 'routing.xml';
         }
 
         if ($config['request']['converters']) {

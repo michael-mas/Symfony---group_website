@@ -238,8 +238,6 @@ class HeaderBag implements \IteratorAggregate, \Countable
 
     /**
      * Returns an iterator for headers.
-     *
-     * @return \ArrayIterator<string, list<string|null>>
      */
     public function getIterator(): \ArrayIterator
     {
